@@ -50,12 +50,12 @@ uv run server.py
 
 The server starts on `http://localhost:8000` and serves:
 
-- `/.well-known/oauth-authorization-server` — MCP OAuth discovery
-- `/register` — Dynamic client registration bridge
+- `/.well-known/oauth-authorization-server` — MCP OAuth discovery (public)
+- `/register` — Dynamic client registration bridge (public)
 - `/authorize` — Authorization endpoint
 - `/token` — Token endpoint
 - `/auth/callback` — OAuth callback (must match Google Cloud Console)
-- `/mcp` — MCP message endpoint (protected)
+- `/mcp` — MCP message endpoint (all methods protected)
 
 ## Test with an MCP client
 
@@ -103,28 +103,47 @@ You need a publicly reachable HTTPS URL. Choose any host you prefer (Railway, Fl
 4. **Leave Client ID, Client Secret, and Scopes blank**. CogSol will use Dynamic OAuth 2.1 and register itself automatically via `/register`.
 5. Save and authenticate when prompted.
 
-CogSol will discover auth metadata from `/.well-known/oauth-authorization-server`, complete the Google login on behalf of the agent, and call the `sum` tool with a Bearer token.
+CogSol will discover auth metadata from `/.well-known/oauth-authorization-server`, complete the Google login on behalf of the agent, list tools, and call the `sum` tool with a Bearer token.
+
+> **Note:** With the Horizon-compatible `server.py`, every MCP method — including `tools/list` — requires authentication. CogSol will authenticate first, which is what you see in the agent onboarding flow.
 
 ## Deploy to Prefect Horizon (managed hosting)
 
-[Prefect Horizon](https://prefect.io/horizon) can host, scale, and secure this MCP server for you. It supports Google OAuth 2.1, TLS, and dynamic client registration out of the box.
+[Prefect Horizon](https://prefect.io/horizon) can host, scale, and expose this MCP server to CogSol without you managing TLS or a public VM.
 
-The easiest integration is to let Horizon manage authentication:
+### Free plan (bring your own Google OAuth)
 
-1. Use `horizon_server.py` instead of `server.py`.
-2. Add, commit, and push the repo to GitHub.
+Horizon's built-in Google identity provider is a paid Gateway feature. On the free plan, use `server.py` and supply your own Google OAuth credentials through environment variables. The authentication is handled by your code, not by Horizon Gateway.
+
+1. Make sure `server.py` contains a module-level `mcp` object and no custom `uvicorn.run()` logic. The current `server.py` is already in this form.
+2. Push the repo to GitHub.
 3. In Prefect Horizon, create a new project and set the entry point to:
    ```text
-   horizon_server.py:mcp
+   server.py:mcp
    ```
-4. In the Horizon dashboard, connect **Google OAuth** as the identity provider and add your Google Client ID / Secret.
-5. Horizon will deploy the server and give you a URL like:
+4. Add these environment variables in the Horizon UI:
+   ```bash
+   GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-client-secret
+   BASE_URL=https://your-project.fastmcp.app
+   ALLOWED_CLIENT_REDIRECT_URIS="https://*.cogsol.com/oauth/callback"
+   ```
+   Replace the redirect URI pattern with the exact callback CogSol uses.
+5. In Google Cloud Console, add this authorized redirect URI:
+   ```text
+   https://your-project.fastmcp.app/auth/callback
+   ```
+6. Horizon deploys the server and gives you a URL like:
    ```text
    https://your-project.fastmcp.app/mcp
    ```
-6. Use that URL in CogSol with Authentication set to **OAuth 2.1** and leave Client ID, Client Secret, and Scopes blank.
+   Use that URL in CogSol with **OAuth 2.1** and leave Client ID, Client Secret, and Scopes blank.
 
-> **Note:** `horizon_server.py` intentionally contains no auth code, no `uvicorn.run()`, and no `if __name__ == "__main__":` block. Horizon manages the HTTP lifecycle directly.
+### Paid Horizon Gateway option
+
+If Horizon Gateway's Google OAuth is enabled, use `horizon_server.py` as the entry point and follow the Horizon dashboard prompts. That version contains no auth code because Horizon manages the OAuth flow.
+
+> **Note:** `server.py` is now Horizon-compatible: it exposes `mcp` at module level and lets Horizon manage the HTTP transport. The `if __name__ == "__main__":` block is ignored by Horizon and is only used for local development.
 
 ## Important notes
 
